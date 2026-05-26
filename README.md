@@ -41,15 +41,16 @@
 | **EDSR-Full**     | 32 res-blocks, 256 filters |        LR RGB patch        | EDSR Full [Lim et al., 2017](https://arxiv.org/abs/1707.02921) |
 
 Το μοντέλο SRCNN απαιτεί η LR εικόνα να γίνει upscale μέσω bicubic σε HR, και στη συνέχεια να δουλέψει πάνω στο luminance (Y channel) των 33x33 patches. Τα μοντέλα EDSR δουλεύουν σε patches της LR RGB εικόνας απευθείας, δεν γίνεται upscaling ούτε κάποια μετατροπή color space.
-<p align="center">
-![SRCNN Architecture](readme_images/srcnn_model.png)
-</p>
-*SRCNN: 3-layer CNN που επεξεργάζεται το Y channel της bicubic-upscaled εικόνας.*
 
 <p align="center">
-![EDSR Architecture](readme_images/edsr_model.png)
+  <img src="readme_images/srcnn_model.png" alt="SRCNN Architecture"><br>
+  <em>SRCNN: 3-layer CNN που επεξεργάζεται το Y channel της bicubic-upscaled εικόνας.</em>
 </p>
-*EDSR: Residual blocks με global skip connection και pixel shuffle upsampling. Το ίδιο διάγραμμα ισχύει για Baseline (16 blocks, 64 filters) και Full (32 blocks, 256 filters).*
+
+<p align="center">
+  <img src="readme_images/edsr_model.png" alt="EDSR Architecture"><br>
+  <em>EDSR: Residual blocks με global skip connection και pixel shuffle upsampling. Το διάγραμμα δείχνει τις τρεις upscale παραλλαγές του paper (x2/x3/x4), η υλοποίηση αυτή χρησιμοποιεί μόνο το x2. Το ίδιο διάγραμμα ισχύει για Baseline (16 blocks, 64 filters) και Full (32 blocks, 256 filters).</em>
+</p>
 
 ---
 
