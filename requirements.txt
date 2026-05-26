@@ -1,0 +1,52 @@
+------------------------------------------------------------
+				Εγκατάσταση και Εκτέλεση
+------------------------------------------------------------
+
+Απαιτήσεις: Python 3.13+, GPU με CUDA 12.8 (δοκιμάστηκε σε RTX 4070 Super 12 GB)
+
+1. Δημιουργία virtual environment
+   python -m venv .venv
+   .venv\Scripts\activate
+
+2. Εγκατάσταση PyTorch + TorchVision + TorchAudio (cu128)
+   .venv\Scripts\python -m pip install torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+
+3. Εγκατάσταση Torch-TensorRT (cu128)
+   .venv\Scripts\python -m pip install torch-tensorrt==2.11.0 --no-deps --index-url https://download.pytorch.org/whl/cu128
+   .venv\Scripts\python -m pip install tensorrt-cu12==10.15.1.29 tensorrt-cu12-bindings==10.15.1.29 tensorrt-cu12-libs==10.15.1.29 psutil
+
+4. Εγκατάσταση υπόλοιπων εξαρτήσεων
+   .venv\Scripts\python -m pip install keras==3.14.1 numpy==2.4.3 Pillow==12.1.1 matplotlib==3.10.9 tqdm==4.67.3 scikit-image==0.26.0
+
+5. Δημιουργία dataset (δείτε αναλυτικά στο README.md για κατέβασμα των δεδομένων)
+   Κατέβασμα HR εικόνων στο datasets/APISR_Dataset και εξαγωγή validation frames με extract_frames.py.
+   Στη συνέχεια εφαρμογή bicubic downscaling για δημιουργία των HR/LR pairs και τον .npy files, καθώς και καθαρισμός αρχείων:
+   .venv\Scripts\python downscale.py
+   .venv\Scripts\python prepare_data.py
+
+6. Εκπαίδευση από μηδέν
+   Ορίστε το μοντέλο που θέλετε να εκπαιδεύσετε θέτοντας τη μεταβλητή MODEL_TYPE στο train.py ("SRCNN" ή "EDSR" ή "EDSR_FULL")
+   .venv\Scripts\python train.py
+
+7. Εκτέλεση αξιολόγησης (απαιτούνται τα εκπαιδευμένα .keras αρχεία και το validation dataset)
+   .venv\Scripts\python evaluate.py
+
+   Κατά την πρώτη εκτέλεση για EDSR_FULL, το TensorRT engine θα κάνει compile (περίπου 142s)
+   και θα αποθηκευτεί ως edsr_full_TensorRT.pt2. Σε επόμενα runs φορτώνει σε 0.3s περίπου
+
+Εκδόσεις που δοκιμάστηκαν:
+    torch              2.11.0+cu128
+    torchvision        0.26.0+cu128
+    torchaudio         2.11.0+cu128
+    torch-tensorrt     2.11.0
+    tensorrt           10.15.1.29  (εγκαθίσταται αυτόματα ως dependency του torch-tensorrt)
+    keras              3.14.1
+    numpy              2.4.3
+    Pillow             12.1.1
+    matplotlib         3.10.9
+    tqdm               4.67.3
+    scikit-image       0.26.0
+
+Σημείωση: το ffmpeg απαιτείται μόνο για extract_frames.py (δημιουργία του δικού μου test set). Κατεβαίνει ξεχωριστά: https://ffmpeg.org/download.html
+Αλλά δεν είναι απαραίτητο να τρέξει αυτό το script, οποιεσδήποτε 720p HR και οι αντίστοιχες 360p LR εικόνες μπουν στους αντίστοιχους φακέλους είναι ΟΚ.
+

@@ -1,0 +1,6 @@
+Detailed SRCNN Report
+Avg PSNR: 42.44 dB
+Avg SSIM: 0.9875
+Avg Bicubic PSNR: 39.17 dB
+Avg Bicubic SSIM: 0.9785
+Avg Inference Time: 76.8 ms
