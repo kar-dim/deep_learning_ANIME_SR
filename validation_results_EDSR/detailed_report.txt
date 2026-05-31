@@ -1,6 +1,8 @@
 Detailed EDSR Report
 Avg PSNR: 44.37 dB
 Avg SSIM: 0.9903
+Avg LPIPS: 0.0110
 Avg Bicubic PSNR: 39.17 dB
 Avg Bicubic SSIM: 0.9785
-Avg Inference Time: 79.3 ms
+Avg Bicubic LPIPS: 0.0516
+Avg Inference Time: 77.1 ms

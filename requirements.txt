@@ -17,6 +17,8 @@
 
 4. Εγκατάσταση υπόλοιπων εξαρτήσεων
    .venv\Scripts\python -m pip install keras==3.14.1 numpy==2.4.3 Pillow==12.1.1 matplotlib==3.10.9 tqdm==4.67.3 scikit-image==0.26.0
+   .venv\Scripts\python -m pip install lpips==0.1.4 --no-deps
+   Για το LPIPS perceptual metric στο πρώτο τρέξιμο κατεβάζει αυτόματα τα weights του AlexNet, οπότε θέλει σύνδεση στο internet
 
 5. Δημιουργία dataset (δείτε αναλυτικά στο README.md για κατέβασμα των δεδομένων)
    Κατέβασμα HR εικόνων στο datasets/APISR_Dataset και εξαγωγή validation frames με extract_frames.py.
@@ -46,6 +48,7 @@
     matplotlib         3.10.9
     tqdm               4.67.3
     scikit-image       0.26.0
+    lpips              0.1.4
 
 Σημείωση: το ffmpeg απαιτείται μόνο για extract_frames.py (δημιουργία του δικού μου test set). Κατεβαίνει ξεχωριστά: https://ffmpeg.org/download.html
 Αλλά δεν είναι απαραίτητο να τρέξει αυτό το script, οποιεσδήποτε 720p HR και οι αντίστοιχες 360p LR εικόνες μπουν στους αντίστοιχους φακέλους είναι ΟΚ.

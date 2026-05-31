@@ -24,6 +24,27 @@ from models import build_srcnn, build_edsr, pixel_shuffle_output_shape
 
 NUM_CROP_PLOTS = 20 # Number of images to generate detailed crop plots
 VAL_HR_DIR = "datasets/validation_Dataset"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+_lpips_model = None
+def get_lpips_model(device):
+    """Lazy load the LPIPS perceptual metric model (AlexNet backbone). It is loaded once and reused for all images/models."""
+    global _lpips_model
+    if _lpips_model is None:
+        import lpips
+        _lpips_model = lpips.LPIPS(net='alex', verbose=False).to(device).eval()
+    return _lpips_model
+
+def lpips_distance(pil_a, pil_b, device):
+    """Perceptual LPIPS distance between two RGB PIL images (lower score = more perceptually similar).
+    LPIPS runs on full RGB (feeds a pretrained AlexNet), input normalized to [-1, 1]"""
+    model = get_lpips_model(device)
+    def to_t(img):
+        arr = np.asarray(img.convert("RGB"), dtype="float32") / 255.0 # HWC [0,1]
+        t = torch.from_numpy(arr).permute(2, 0, 1).unsqueeze(0) # 1,3,H,W
+        return (t * 2.0 - 1.0).to(device) # [-1,1]
+    with torch.no_grad():
+        return float(model(to_t(pil_a), to_t(pil_b)).item())
 
 def tiled_sr_predict(model, lr_arr, tile_size=192, overlap=8, batch_size=3):
     """
@@ -196,12 +217,16 @@ def run_evaluation(model_type):
         sr_tensor = np.expand_dims(pred_y, axis=0)
         psnr_val = float(psnr_metric(hr_tensor, sr_tensor))
         ssim_val = float(ssim_metric(hr_tensor, sr_tensor))
+        lpips_val = lpips_distance(sr_rgb_img, hr_img, DEVICE)
+        bc_lpips = lpips_distance(bicubic_upscaled, hr_img, DEVICE)
         results.append({
             "name": hr_path.stem,
             "psnr": psnr_val,
             "ssim": ssim_val,
+            "lpips": lpips_val,
             "bc_psnr": bc_psnr,
             "bc_ssim": bc_ssim,
+            "bc_lpips": bc_lpips,
         })
 
         # Detailed crop plots, only for the first NUM_CROP_PLOTS images
@@ -219,7 +244,7 @@ def run_evaluation(model_type):
         plt.subplot(1, 4, 2); plt.title("Bicubic (Zoom)", pad=10)
         plt.imshow(get_crop(bicubic_arr_rgb)); plt.axis("off")
         plt.subplot(1, 4, 3)
-        plt.title(f"{model_type} AI (Zoom)\nPSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f}", pad=10)
+        plt.title(f"{model_type} AI (Zoom)\nPSNR: {psnr_val:.2f} dB | SSIM: {ssim_val:.4f} | LPIPS: {lpips_val:.4f}", pad=10)
         plt.imshow(get_crop(np.array(sr_rgb_img).astype("float32") / 255.0)); plt.axis("off")
         ax_err = plt.subplot(1, 4, 4)
         plt.title("Error Map (Residual)", pad=10)
@@ -231,25 +256,29 @@ def run_evaluation(model_type):
 
     avg_psnr = np.mean([r['psnr'] for r in results])
     avg_ssim = np.mean([r['ssim'] for r in results])
+    avg_lpips = np.mean([r['lpips'] for r in results])
     avg_bc_psnr = np.mean([r['bc_psnr'] for r in results])
     avg_bc_ssim = np.mean([r['bc_ssim'] for r in results])
+    avg_bc_lpips = np.mean([r['bc_lpips'] for r in results])
     avg_inf = np.mean(inference_times)
 
-    print(f"\n{'='*60}")
-    print(f"  Method               | Avg PSNR (dB) | Avg SSIM | Inf (ms)")
-    print(f"{'='*60}")
-    print(f"  Bicubic              | {avg_bc_psnr:>13.2f} | {avg_bc_ssim:>8.4f} |   N/A")
+    print(f"\n{'='*72}")
+    print(f"  Method               | Avg PSNR (dB) | Avg SSIM | Avg LPIPS | Inf (ms)")
+    print(f"{'='*72}")
+    print(f"  Bicubic              | {avg_bc_psnr:>13.2f} | {avg_bc_ssim:>8.4f} | {avg_bc_lpips:>9.4f} |   N/A")
     print(f"  {model_type} [{precision_label}]")
-    print(f"                       | {avg_psnr:>13.2f} | {avg_ssim:>8.4f} | {avg_inf:>7.1f}")
-    print(f"{'='*60}")
+    print(f"                       | {avg_psnr:>13.2f} | {avg_ssim:>8.4f} | {avg_lpips:>9.4f} | {avg_inf:>7.1f}")
+    print(f"{'='*72}")
     print(f"  Delta PSNR           | {avg_psnr - avg_bc_psnr:>+13.2f} dB")
 
     summary = {
         "model": model_type,
         "avg_psnr": avg_psnr,
         "avg_ssim": avg_ssim,
+        "avg_lpips": avg_lpips,
         "avg_bc_psnr": avg_bc_psnr,
         "avg_bc_ssim": avg_bc_ssim,
+        "avg_bc_lpips": avg_bc_lpips,
         "avg_inference_ms": avg_inf,
         "per_image": results,
     }
@@ -258,8 +287,8 @@ def run_evaluation(model_type):
 
     with open(f"{output_dir}/detailed_report.txt", "w") as f:
         f.write(f"Detailed {model_type} Report\n")
-        f.write(f"Avg PSNR: {avg_psnr:.2f} dB\nAvg SSIM: {avg_ssim:.4f}\n")
-        f.write(f"Avg Bicubic PSNR: {avg_bc_psnr:.2f} dB\nAvg Bicubic SSIM: {avg_bc_ssim:.4f}\n")
+        f.write(f"Avg PSNR: {avg_psnr:.2f} dB\nAvg SSIM: {avg_ssim:.4f}\nAvg LPIPS: {avg_lpips:.4f}\n")
+        f.write(f"Avg Bicubic PSNR: {avg_bc_psnr:.2f} dB\nAvg Bicubic SSIM: {avg_bc_ssim:.4f}\nAvg Bicubic LPIPS: {avg_bc_lpips:.4f}\n")
         f.write(f"Avg Inference Time: {avg_inf:.1f} ms\n")
 
     # Per image PSNR line chart sorted by difficulty (bicubic psnr)
@@ -375,27 +404,28 @@ def plot_comparison_figures():
     edsr_res = json.load(open(edsr_res_file))
     edsr_full_res = json.load(open(edsr_full_res_file))
     rows = [
-        ["Bicubic (baseline)", f"{srcnn_res['avg_bc_psnr']:.2f}", f"{srcnn_res['avg_bc_ssim']:.4f}", "-", "-"],
-        ["SRCNN", f"{srcnn_res['avg_psnr']:.2f}", f"{srcnn_res['avg_ssim']:.4f}", f"{srcnn_res['avg_inference_ms']:.1f}", "~57K"],
-        ["EDSR-Baseline", f"{edsr_res['avg_psnr']:.2f}", f"{edsr_res['avg_ssim']:.4f}", f"{edsr_res['avg_inference_ms']:.1f}", "~1.2M"],
-        ["EDSR-Full", f"{edsr_full_res['avg_psnr']:.2f}", f"{edsr_full_res['avg_ssim']:.4f}", f"{edsr_full_res['avg_inference_ms']:.1f}", "~38.4M"],
+        ["Bicubic (baseline)", f"{srcnn_res['avg_bc_psnr']:.2f}", f"{srcnn_res['avg_bc_ssim']:.4f}", f"{srcnn_res['avg_bc_lpips']:.4f}", "-", "-"],
+        ["SRCNN", f"{srcnn_res['avg_psnr']:.2f}", f"{srcnn_res['avg_ssim']:.4f}", f"{srcnn_res['avg_lpips']:.4f}", f"{srcnn_res['avg_inference_ms']:.1f}", "~57K"],
+        ["EDSR-Baseline", f"{edsr_res['avg_psnr']:.2f}", f"{edsr_res['avg_ssim']:.4f}", f"{edsr_res['avg_lpips']:.4f}", f"{edsr_res['avg_inference_ms']:.1f}", "~1.2M"],
+        ["EDSR-Full", f"{edsr_full_res['avg_psnr']:.2f}", f"{edsr_full_res['avg_ssim']:.4f}", f"{edsr_full_res['avg_lpips']:.4f}", f"{edsr_full_res['avg_inference_ms']:.1f}", "~38.4M"],
     ]
-    col_labels = ["Method", "PSNR (dB)", "SSIM", "Inf. time (ms)", "Params"]
-    fig, ax = plt.subplots(figsize=(10, 1.2 + 0.6 * len(rows)))
+    col_labels = ["Method", "PSNR (dB)", "SSIM", "LPIPS", "Inf. time (ms)", "Params"]
+    fig, ax = plt.subplots(figsize=(12, 1.2 + 0.6 * len(rows)))
     ax.axis('off')
     tbl = ax.table(cellText=rows, colLabels=col_labels, cellLoc='center', loc='center')
     tbl.auto_set_font_size(False); tbl.set_fontsize(11); tbl.scale(1.2, 2.0)
     for j in range(len(col_labels)):
         tbl[0, j].set_facecolor('#2e4057')
         tbl[0, j].set_text_props(color='white', fontweight='bold')
-    for col_idx in [1, 2]:
+    # NOTE: for PSNR/SSIM higher is better, for LPIPS lower is better
+    for col_idx, better in [(1, 'max'), (2, 'max'), (3, 'min')]:
         vals = []
         for row_idx in range(1, len(rows) + 1):
             try:
                 vals.append(float(tbl[row_idx, col_idx].get_text().get_text()))
             except ValueError:
-                vals.append(-np.inf)
-        best_row = int(np.argmax(vals)) + 1
+                vals.append(-np.inf if better == 'max' else np.inf)
+        best_row = (int(np.argmax(vals)) if better == 'max' else int(np.argmin(vals))) + 1
         tbl[best_row, col_idx].set_facecolor('#c6efce')
         tbl[best_row, col_idx].set_text_props(fontweight='bold')
     fig.suptitle("Model Comparison - Super Resolution (2x)", fontweight='bold', fontsize=13)
