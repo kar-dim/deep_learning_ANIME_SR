@@ -22,14 +22,15 @@
 | Μοντέλο | Avg PSNR (dB) ↑ | Avg SSIM ↑ | Avg LPIPS ↓ | Παράμετροι | Inference |
 |---------|--------------|----------|----------|------------|-----------|
 | Bicubic (baseline) |   39.17   |   0.9785   |   0.0516   |   -   |            -            |
-| SRCNN              |   42.44   |   0.9875   |   0.0221   | ~57K  |         ~76 ms          |
-| EDSR-Baseline      |   44.37   |   0.9903   |   0.0110   | ~1.2M |         ~79 ms          |
+| SRCNN              |   42.44   |   0.9875   |   0.0221   | ~57K  |         ~64 ms          |
+| EDSR-Baseline      |   44.37   |   0.9903   |   0.0110   | ~1.2M |         ~77 ms          |
 | EDSR-Full          | **46.46** | **0.9928** | **0.0079** | ~38.4M | ~261 ms (FP16 TensorRT, full image) |
 
 > Όλα τα μοντέλα αξιολογήθηκαν σε 188 anime frames που δεν συμπεριλαμβάνονταν στα δεδομένα εκπαίδευσης.
 > PSNR/SSIM υπολογίστηκαν στο κανάλι Y (φωτεινότητα), το LPIPS σε πλήρες RGB. Inference σε RTX 4070 Super (12 GB).  
 > SSIM υπολογίζεται με sliding 11x11 Gaussian window (`skimage.metrics.structural_similarity`), το οποίο είναι το standard reference implementation.
 > Για PSNR/SSIM υψηλότερη τιμή είναι καλύτερη, για LPIPS χαμηλότερη. Δείτε [Μετρικές Αξιολόγησης](#μετρικές-αξιολόγησης) για επεξήγηση.
+> Οι χρόνοι inference είναι ενδεικτικοί (μέσος όρος μίας εκτέλεσης) και ποικίλλουν ελαφρά ανά run, ιδίως στα μικρά μοντέλα όπου κυριαρχεί το σταθερό per-call overhead. Οι μετρικές PSNR/SSIM/LPIPS είναι ντετερμινιστικές.
 
 ---
 
@@ -96,7 +97,7 @@
 
 Χωρίς επικάλυψη (overlap) θα εμφανίζονταν ορατές ασυνέχειες (seams) στα όρια των tiles, γιατί τα boundary pixels βλέπουν λιγότερο context και το μοντέλο παράγει διαφορετικές τιμές από κάθε πλευρά. Η επικάλυψη των **8 LR pixels** ανά πλευρά (16 pixels στην HR έξοδο) εξαλείφει αυτά τα artifacts, το weighted average blending εξασφαλίζει ομαλή μετάβαση στις επικαλυπτόμενες περιοχές. Δοκιμάστηκε και overlap=16, με ίδιο PSNR αλλά +50% αργότερο inference, επιβεβαιώνοντας ότι overlap=8 είναι επαρκές, οπότε και εγκαταλείφθηκε. Η ίδια τεχνική (tiled inference) χρησιμοποιείται και σε production SR συστήματα όπως το Real-ESRGAN για τον ίδιο ακριβώς λόγο.
 
-Το inference τρέχει με **mixed FP16 precision** (`mixed_float16` policy): τα weights παραμένουν FP32 αλλά οι πράξεις εκτελούνται σε FP16, τα WMMA tiles (Tensor Cores) χωράνε 2 φορές περισσότερα FP16 elements από FP32, διπλασιάζοντας το throughput ανά operation, ενώ τα activations καταλαμβάνουν μισό χώρο στη μνήμη (μειωμένο memory bandwidth). Αποτέλεσμα: 1018ms -> **562ms** (1.8x speedup περίπου) χωρίς καμία απώλεια ποιότητας (46.44 dB vs 46.44 dB FP32). Αντίστοιχα, το Real-ESRGAN χρησιμοποιεί FP16 inference by default.
+Το inference τρέχει με **mixed FP16 precision** (`mixed_float16` policy): τα weights παραμένουν FP32 αλλά οι πράξεις εκτελούνται σε FP16, τα WMMA tiles (Tensor Cores) χωράνε 2 φορές περισσότερα FP16 elements από FP32, διπλασιάζοντας το throughput ανά operation, ενώ τα activations καταλαμβάνουν μισό χώρο στη μνήμη (μειωμένο memory bandwidth). Αποτέλεσμα: 1018ms -> **564ms** (1.8x speedup περίπου) χωρίς καμία απώλεια ποιότητας (46.44 dB vs 46.44 dB FP32). Αντίστοιχα, το Real-ESRGAN χρησιμοποιεί FP16 inference by default.
 
 Πραγματοποιήθηκε επιπλέον βελτιστοποίηση του inference στο EDSR-Full με **batch tiling**: αντί κάθε tile να περνά ξεχωριστά από το μοντέλο, περνούν ομαδοποιημένα ανά N. Κάθε ξεχωριστή κλήση του `model.predict()` έχει Python/Keras overheads και ένα blocking GPU->CPU sync.
 
@@ -109,7 +110,7 @@
 | **3**      | **502.0** |          **9.3 GB**        |
 | 8          | 4565.6    | >12 GB -> overflow στη RAM |
 
-Με batch=8 τα 24 GB activations (8 tiles x 3 GB) ξεπερνούν τα 12 GB VRAM και spill στη system RAM (shared GPU memory), με αποτέλεσμα 8x επιβράδυνση. Το **batch=3** είναι το καταλληλότερο για τη συγκεκριμένη GPU: 3 tiles x 3 GB = 9 GB, μέσα στα όρια, με **11% speedup** συνολικά (562ms -> 502ms) χωρίς καμία επίδραση στην ποιότητα (PSNR/SSIM αμετάβλητα).
+Με batch=8 τα 24 GB activations (8 tiles x 3 GB) ξεπερνούν τα 12 GB VRAM και spill στη system RAM (shared GPU memory), με αποτέλεσμα 8x επιβράδυνση. Το **batch=3** είναι το καταλληλότερο για τη συγκεκριμένη GPU: 3 tiles x 3 GB = 9 GB, μέσα στα όρια, με **11% speedup** συνολικά (564ms -> 502ms) χωρίς καμία επίδραση στην ποιότητα (PSNR/SSIM αμετάβλητα).
 
 ### TensorRT Compilation στο EDSR-Full
 
@@ -133,9 +134,9 @@
 
 **Περιορισμός TensorRT:** Το engine είναι compiled αποκλειστικά για 640x360 LR input, εικόνα διαφορετικής ανάλυσης δεν μπορεί να το χρησιμοποιήσει. Αυτό λειτουργεί για το συγκεκριμένο project όπου το σύνολο δεδομένων είναι πάντα 640x360 LR / 1280x720 HR. Για οποιαδήποτε ανάλυση η λύση θα ήταν TensorRT dynamic shapes (`min_shape`/`opt_shape`/`max_shape`), που μας επιστρέφει στο tiled inference με 8 x 192x192 tiles, ένα βήμα πίσω. Το fallback `_tiled_sr_predict` (χωρίς TensorRT) υπάρχει ήδη στον κώδικα και χειρίζεται οποιαδήποτε ανάλυση. Άν γνωρίζουμε πως η ανάλυση θα είναι πάντα σταθερή τότε η τελευταία υλοποίηση (TensorRT με full image) είναι αυτή που έχει γρηγορότερο inference (261 ms), αλλιώς θα εφαρμόζαμε την προηγούμενη (tiled TensorRT) στα 367 ms που είναι καλύτερη λύση από Keras χωρίς TensorRT τόσο σε απαιτήσεις VRAM όσο και σε inference time.
 
-**Γιατί δεν εφαρμόστηκε TensorRT στα υπόλοιπα μοντέλα:** Η βελτιστοποίηση εφαρμόστηκε εκεί που υπήρχε πραγματικό bottleneck. Το EDSR-Full με 502ms ήταν ο ξεκάθαρος στόχος μας, το TensorRT με full image inference έδωσε 241ms κέρδος (48%). Για το EDSR-Baseline (~79ms) και το SRCNN (~76ms) το απόλυτο κέρδος θα ήταν μικρό, ενώ η πολυπλοκότητα αυξάνεται χωρίς λόγο. Επίσης, το EDSR-Baseline είναι memory bound (64 filters), οπότε το kernel fusion του TensorRT βοηθά κυρίως το compute κομμάτι, το bottleneck παραμένει η μεταφορά activations. Το SRCNN επεξεργάζεται την εικόνα στην πλήρη HR ανάλυση (1280x720), με αποτέλεσμα τεράστια feature maps παρά τα λίγα (57K) parameters, κάτι που κάνει τον ορισμό των TensorRT dynamic shapes πολυπλοκότερο χωρίς ουσιαστικό όφελος.
+**Γιατί δεν εφαρμόστηκε TensorRT στα υπόλοιπα μοντέλα:** Η βελτιστοποίηση εφαρμόστηκε εκεί που υπήρχε πραγματικό bottleneck. Το EDSR-Full με 502ms ήταν ο ξεκάθαρος στόχος μας, το TensorRT με full image inference έδωσε 241ms κέρδος (48%). Για το EDSR-Baseline (~77ms) και το SRCNN (~64ms) το απόλυτο κέρδος θα ήταν μικρό, ενώ η πολυπλοκότητα αυξάνεται χωρίς λόγο. Επίσης, το EDSR-Baseline είναι memory bound (64 filters), οπότε το kernel fusion του TensorRT βοηθά κυρίως το compute κομμάτι, το bottleneck παραμένει η μεταφορά activations. Το SRCNN επεξεργάζεται την εικόνα στην πλήρη HR ανάλυση (1280x720), με αποτέλεσμα τεράστια feature maps παρά τα λίγα (57K) parameters, κάτι που κάνει τον ορισμό των TensorRT dynamic shapes πολυπλοκότερο χωρίς ουσιαστικό όφελος.
 
-Το EDSR-Baseline παραμένει σε FP32: δοκιμάστηκε FP16 και ήταν αργότερο (102ms vs 79ms), οπότε εγκαταλείφθηκε. Για παρόμοιο λόγο δεν εφαρμόστηκε FP16 και στο SRCNN.
+Το EDSR-Baseline παραμένει σε FP32: δοκιμάστηκε FP16 και ήταν αργότερο (102ms vs 77ms), οπότε εγκαταλείφθηκε. Για παρόμοιο λόγο δεν εφαρμόστηκε FP16 και στο SRCNN.
 
 ### Παράμετροι Εκπαίδευσης
 
@@ -229,7 +230,7 @@
   ```
   python evaluate.py
   ```
-  Εκτελεί inference σε όλες τις 188 εικόνες αξιολόγησης και για τα τρία μοντέλα, παράγει PSNR/SSIM ανά εικόνα, λεπτομερή crop plots (20 δείγματα) και συγκριτικά γραφήματα στον φάκελο `report_figures/`.
+  Εκτελεί inference σε όλες τις 188 εικόνες αξιολόγησης και για τα τρία μοντέλα, παράγει PSNR/SSIM/LPIPS ανά εικόνα, λεπτομερή crop plots (20 δείγματα) και συγκριτικά γραφήματα στον φάκελο `report_figures/`.
 
 ---
 
@@ -260,7 +261,7 @@
 ![EDSR-Full result sample](validation_results_EDSR_FULL/detailed_my_anime_0080.png)
 
 > **Πλήρη αποτελέσματα:** Οι φάκελοι `validation_results_SRCNN/`, `validation_results_EDSR/` και `validation_results_EDSR_FULL/` περιέχουν για κάθε μοντέλο:
-> - `results.json`: PSNR/SSIM για κάθε εικόνα του validation set
+> - `results.json`: PSNR/SSIM/LPIPS για κάθε εικόνα του validation set
 > - `detailed_report.txt`: μέσοι όροι μετρικών
 > - `detailed_*.png`: crop comparisons για τις πρώτες 20 εικόνες
 
@@ -328,4 +329,4 @@
 
 **EDSR-Baseline**: Καλή ισορροπία μεταξύ ποιότητας, χρόνου εκπαίδευσης και inference. Με 1.2M παραμέτρους και 16 residual blocks δίνει +5.20 dB έναντι bicubic σε FP32 (χωρίς TensorRT ή FP16). Ο χρόνος εκπαίδευσης είναι πολύ μικρότερος από το EDSR-Full και δεν υπάρχει overhead στο inference. Στις εικόνες φαίνεται ελαφρά κατώτερο από το EDSR-Full σε λεπτομέρειες υψηλής πολυπλοκότητας, αλλά σταθερά ανώτερο από SRCNN.
 
-**EDSR-Full**: Το μοντέλο υψηλότερης ποιότητας τόσο στις μαθηματικές μετρικές (46.46 dB, +7.29 dB έναντι bicubic), όσο και πρακτικά ("στο μάτι"), η ποιότητα είναι πολύ κοντά στην αρχική HR εικόνα. Έχει όμως κάποια πρακτικά μειονεκτήματα. Ο χρόνος εκπαίδευσης είναι πολλαπλάσιος από τα υπόλοιπα μοντέλα λόγω του μεγέθους (38.4M παράμετροι). Το inference χωρίς βελτιστοποίηση είναι πολύ αργό (~1000ms ανά εικόνα), και ακόμα και με FP16 TensorRT full image inference (261ms) παραμένει 3.3x αργότερο από το EDSR-Baseline. Το TensorRT compilation απαιτεί 142 δευτερόλεπτα (στο δικό μου μηχάνημα) μια φορά σε κάθε νέο μηχάνημα και το compiled engine είναι hardware-specific. Συνιστάται όταν το μοντέλο θα εφαρμοστεί σε production με πολλούς χρήστες, π.χ web service με χιλιάδες requests: τότε τόσο ο χρόνος inference όσο και η κατανάλωση VRAM επηρεάζουν άμεσα το κόστος του server και τον αριθμό παράλληλων requests που μπορεί να εξυπηρετηθούν. Η βελτιστοποίηση με TensorRT εκεί (261ms, 2.2 GB VRAM) είναι "μονόδρομος".
+**EDSR-Full**: Το μοντέλο υψηλότερης ποιότητας τόσο στις μαθηματικές μετρικές (46.46 dB, +7.29 dB έναντι bicubic), όσο και πρακτικά ("στο μάτι"), η ποιότητα είναι πολύ κοντά στην αρχική HR εικόνα. Έχει όμως κάποια πρακτικά μειονεκτήματα. Ο χρόνος εκπαίδευσης είναι πολλαπλάσιος από τα υπόλοιπα μοντέλα λόγω του μεγέθους (38.4M παράμετροι). Το inference χωρίς βελτιστοποίηση είναι πολύ αργό (~1000ms ανά εικόνα), και ακόμα και με FP16 TensorRT full image inference (261ms) παραμένει 3.4x αργότερο από το EDSR-Baseline. Το TensorRT compilation απαιτεί 142 δευτερόλεπτα (στο δικό μου μηχάνημα) μια φορά σε κάθε νέο μηχάνημα και το compiled engine είναι hardware-specific. Συνιστάται όταν το μοντέλο θα εφαρμοστεί σε production με πολλούς χρήστες, π.χ web service με χιλιάδες requests: τότε τόσο ο χρόνος inference όσο και η κατανάλωση VRAM επηρεάζουν άμεσα το κόστος του server και τον αριθμό παράλληλων requests που μπορεί να εξυπηρετηθούν. Η βελτιστοποίηση με TensorRT εκεί (261ms, 2.2 GB VRAM) είναι "μονόδρομος".
