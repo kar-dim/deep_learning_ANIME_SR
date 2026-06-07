@@ -461,6 +461,33 @@ def plot_comparison_figures():
     plt.savefig(f"{output_dir}/psnr_comparison_all_models.png", bbox_inches='tight', dpi=200); plt.close()
     print(f"Saved: {output_dir}/psnr_comparison_all_models.png")
 
+    # Combined per image LPIPS line chart: all models sorted by difficulty (perceptual metric, LOWER is better)
+    # same logic as the PSNR chart
+    common_sorted_l = sorted(
+        [r for r in srcnn_res['per_image'] if r['name'] in edsr_map and r['name'] in edsr_full_map],
+        key=lambda r: r['bc_lpips'], reverse=True  # hardest (highest LPIPS) -> easiest
+    )
+    xl = np.arange(len(common_sorted_l))
+    bc_l = [r['bc_lpips'] for r in common_sorted_l]
+    srcnn_l = [r['lpips'] for r in common_sorted_l]
+    edsr_l = [edsr_map[r['name']]['lpips'] for r in common_sorted_l]
+    full_l = [edsr_full_map[r['name']]['lpips'] for r in common_sorted_l]
+    fig, ax = plt.subplots(figsize=(14, 5))
+    ax.plot(xl, bc_l, color='#5b9bd5', linewidth=1.5, label=f'Bicubic       (avg {np.mean(bc_l):.4f})')
+    ax.plot(xl, srcnn_l, color='#ed7d31', linewidth=1.5, label=f'SRCNN         (avg {np.mean(srcnn_l):.4f})')
+    ax.plot(xl, edsr_l, color='#70ad47', linewidth=1.5, label=f'EDSR-Baseline (avg {np.mean(edsr_l):.4f})')
+    ax.plot(xl, full_l, color='#c00000', linewidth=1.5, label=f'EDSR-Full     (avg {np.mean(full_l):.4f})')
+    ax.fill_between(xl, bc_l, srcnn_l, alpha=0.08, color='#ed7d31')
+    ax.fill_between(xl, srcnn_l, edsr_l, alpha=0.08, color='#70ad47')
+    ax.fill_between(xl, edsr_l, full_l, alpha=0.08, color='#c00000')
+    ax.set_xlabel('Images sorted by Bicubic LPIPS (hardest -> easiest)')
+    ax.set_ylabel('LPIPS (lower is better)')
+    ax.set_title('Per-Image LPIPS: Bicubic vs SRCNN vs EDSR-Baseline vs EDSR-Full (sorted by difficulty)')
+    ax.legend(); ax.yaxis.set_minor_locator(ticker.AutoMinorLocator()); ax.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(f"{output_dir}/lpips_comparison_all_models.png", bbox_inches='tight', dpi=200); plt.close()
+    print(f"Saved: {output_dir}/lpips_comparison_all_models.png")
+
     print(f"\nAll comparison figures saved to '{output_dir}/'")
 
 

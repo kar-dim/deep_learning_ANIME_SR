@@ -269,6 +269,8 @@
 
 ## Αποτελέσματα / Γραφήματα
 
+> Κάθε μετρική παρουσιάζεται με τον τύπο γραφήματος που ταιριάζει καλύτερα στο εύρος τιμών της: sorted-by-difficulty γραμμή για PSNR και LPIPS που έχουν μεγάλο δυναμικό εύρος, scatter plot (model vs bicubic) για το SSIM που είναι συμπιεσμένο κοντά στο 1 (όπου μια γραμμή θα ήταν επίπεδη και δυσανάγνωστη).
+
 ### Καμπύλες Εκπαίδευσης
 
 ![SRCNN training curves](report_figures/training_curves_SRCNN.png)
@@ -284,6 +286,12 @@
 ### PSNR ανά Εικόνα: Σύγκριση Όλων των Μοντέλων
 
 ![PSNR comparison all models](report_figures/psnr_comparison_all_models.png)
+
+### LPIPS ανά Εικόνα: Σύγκριση Όλων των Μοντέλων (perceptual)
+
+Επειδή στο LPIPS **χαμηλότερο = καλύτερο**, ο άξονας είναι ανεστραμμένος σε σχέση με το PSNR.
+
+![LPIPS comparison all models](report_figures/lpips_comparison_all_models.png)
 
 ### Πίνακας Σύγκρισης
 
